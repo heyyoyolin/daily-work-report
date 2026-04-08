@@ -8,8 +8,8 @@ from datetime import datetime
 import re
 
 # --- 頁面設定 ---
-st.set_page_config(page_title="銀行驗收單生成器-修復版", page_icon="🏦", layout="wide")
-st.title("🏦 銀行驗收單自動生成系統 (v2.5)")
+st.set_page_config(page_title="銀行驗收單生成器-日期修正版", page_icon="🏦", layout="wide")
+st.title("🏦 銀行驗收單自動生成系統 (v2.6)")
 
 # --- 函式：設定字體為標楷體 ---
 def set_font_kai(run):
@@ -61,21 +61,22 @@ uploaded_excel = st.sidebar.file_uploader("1. 上傳 Excel 清單 (.xlsx)", type
 uploaded_word = st.sidebar.file_uploader("2. 上傳 Word 範本 (.docx)", type=['docx'])
 
 if uploaded_excel and uploaded_word:
-    # 讀取時強制所有欄位為字串
+    # 讀取 Excel
     df = pd.read_excel(uploaded_excel, dtype=str)
     df.columns = df.columns.str.strip() 
-    df['日期物件'] = pd.to_datetime(df['汰換日期'], errors='coerce')
+    
+    # --- 【核心修正 1：鎖定 C 欄日期】 ---
+    # 由於標題包含換行，我們使用搜尋關鍵字的方式來鎖定正確的日期欄位
+    target_date_col = next((col for col in df.columns if "移除萊爾富" in col), "汰換日期")
+    df['日期物件'] = pd.to_datetime(df[target_date_col], errors='coerce')
     
     st.header("⚙️ 篩選與產出設定")
     col1, col2 = st.columns(2)
     
     with col1:
-        # --- 【核心修復邏輯】 ---
-        # 1. 先用 dropna() 去除真正的空值
-        # 2. 用列表推導式確保每個元素都是 str 且排除 'nan' 字串
+        # 工程師名單防禦處理
         raw_list = df['工程師'].dropna().unique().tolist()
         all_engineers = sorted([str(eng).strip() for eng in raw_list if str(eng).strip().lower() != 'nan' and str(eng).strip() != ''])
-        
         selected_engineers = st.multiselect("選擇需要的工程師：", options=all_engineers, default=[])
         
     with col2:
@@ -89,7 +90,7 @@ if uploaded_excel and uploaded_word:
                 if len(dr) == 2:
                     start_date, end_date = dr
             else:
-                st.error("Excel 中無有效日期。")
+                st.error(f"Excel 中「{target_date_col}」欄位無有效日期。")
         else:
             c1, c2 = st.columns(2)
             with c1:
@@ -108,7 +109,6 @@ if uploaded_excel and uploaded_word:
 
     # --- 資料過濾 ---
     if start_date and end_date and selected_engineers:
-        # 過濾時也確保工程師欄位是字串比對
         mask = (df['工程師'].astype(str).str.strip().isin(selected_engineers)) & \
                (df['日期物件'].dt.date >= start_date) & \
                (df['日期物件'].dt.date <= end_date)
@@ -134,6 +134,8 @@ if uploaded_excel and uploaded_word:
 
                 m_id = get_val('機號') or "(缺機號)"
                 a_id = get_val('CUB財編') or "(缺財編)"
+                
+                # --- 【核心修正 2：使用正確的日期進行格式化】 ---
                 raw_date = row.get('日期物件')
                 formatted_date = raw_date.strftime("%Y年%m月%d日") if pd.notna(raw_date) else "(日期缺失)"
                 
@@ -157,26 +159,4 @@ if uploaded_excel and uploaded_word:
                     "{{Model}}": model_text
                 }
                 
-                replace_text_in_document(doc, replacements)
-                
-                doc_io = io.BytesIO()
-                doc.save(doc_io)
-                doc_io.seek(0)
-                
-                error_tag = "[Error]" if "(缺" in m_id or "(缺" in a_id else ""
-                file_date = raw_date.strftime("%Y%m%d") if pd.notna(raw_date) else "NoDate"
-                safe_station = get_val('站點名稱').replace('/', '_') or "Unknown"
-                file_name = f"{error_tag}{file_date}_{m_id}_{safe_station}.docx"
-                
-                zip_file.writestr(file_name, doc_io.getvalue())
-                progress_bar.progress((i + 1) / len(final_df))
-        
-        st.success("✅ 全部標楷體文件已生成完成！")
-        st.download_button(
-            label="📥 下載所有標楷體 Word 檔案 (ZIP)",
-            data=zip_buffer.getvalue(),
-            file_name=f"驗收單_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
-            mime="application/zip"
-        )
-else:
-    st.info("請上傳 Excel 與 Word 檔案以開始操作。")
+                replace_text_in_
